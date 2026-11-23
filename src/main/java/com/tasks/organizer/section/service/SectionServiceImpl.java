@@ -58,20 +58,25 @@ public class SectionServiceImpl implements SectionService {
 
   //This function is used to validate that a section being passed as param belongs 
   //to the authenticated organization member
-  public Section validateOrgSectionOwnership(UUID sectionId){
+  public Section validateOrgSectionOwnership(UUID sectionId) {
     Section section = sectionRepository.findById(sectionId).orElse(null);
-    if(section == null || !section.getIsActive()){
+    if (section == null || !Boolean.TRUE.equals(section.getIsActive())) {
       return null;
     }
+
     Organization sectionOrg = section.getOrganization();
-    if(sectionOrg != null && sectionOrg.getId() != null){
+
+    if (sectionOrg != null && sectionOrg.getId() != null) {
+      // Validate org credentials if owned by an org
       OrgContext orgCtx = orgAuth.currentOrgContext();
-      if(orgCtx == null || !orgCtx.organizationId().equals(sectionOrg.getId())){
+      if (orgCtx == null || !sectionOrg.getId().equals(orgCtx.organizationId())) {
         return null;
       }
-    }
-    else{
-      if(!section.getUser().getId().equals(orgAuth.currentUser().getId())){
+    } else {
+      // When owned by a user ensure it belongs to the user
+      User owner = section.getUser();
+      User current = orgAuth.currentUser();
+      if (owner == null || current == null || !owner.getId().equals(current.getId())) {
         return null;
       }
     }

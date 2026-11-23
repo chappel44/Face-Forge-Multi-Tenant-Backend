@@ -98,6 +98,13 @@ public class TopicServiceImpl implements TopicService {
     return ApiResponse.of(HttpStatus.NO_CONTENT, "Topic deleted", null);
   }
 
+  // True when both are personal (null) or both belong to the same organization
+  private static boolean sameOrganization(Organization a, Organization b) {
+    UUID aId = a == null ? null : a.getId();
+    UUID bId = b == null ? null : b.getId();
+    return Objects.equals(aId, bId);
+  }
+
   @Transactional
   public ResponseEntity<ApiResponse<Object>> createTopic(CreateTopicDTO entity, UUID sectionId) {
     Section section = sectionService.validateOrgSectionOwnership(sectionId);
@@ -110,7 +117,7 @@ public class TopicServiceImpl implements TopicService {
     TopicDTO topicDTO = entity.getTopic();
 
     User user = orgAuth.currentUser();
-    
+
     // Personal topics have no organization and are always PUBLIC
     Organization organization = null;
     Visibility visibility = Visibility.PUBLIC;
@@ -126,10 +133,18 @@ public class TopicServiceImpl implements TopicService {
       }
 
       organization = organizationRepository.findById(org.organizationId()).orElse(null);
+
+      //Ensure that section and topic have the same org
       if (organization == null) {
         return ApiResponse.error(HttpStatus.NOT_FOUND, "Section not found");
       }
       visibility = topicDTO.getVisibility();
+    }
+
+    // A topic and its section must share the same organization (or both be personal)
+    if (!sameOrganization(section.getOrganization(), organization)) {
+      System.out.println("Section does not belong to authenticated user");
+      return ApiResponse.error(HttpStatus.NOT_FOUND, "Section not found");
     }
 
     Topic newTopic = Topic.builder()
@@ -182,25 +197,15 @@ public class TopicServiceImpl implements TopicService {
         return ApiResponse.of(HttpStatus.NOT_FOUND, "topic not found", null);
       }
     }
-
+    
     TopicDTO requestTopic = request.getTopic();
 
-    //Topic changed if a the topic type, or section it belongs to changes or if the question pool size changes.
-    boolean topicChange =
-      !requestTopic.getTopicType().equals(activeTopic.getTopicType()) ||
-      !Objects.equals(requestTopic.getSectionId(), activeTopic.getSectionId()) ||
-      (requestTopic.getQuestionPoolSize() != activeTopic.getQuestionPoolSize()
-        && requestTopic.getTopicType() == TopicType.RANDOM_QUESTIONS);
-    
-    activeTopic.setName(requestTopic.getName());
-    activeTopic.setDescription(requestTopic.getDescription());
-    activeTopic.setTopicType(requestTopic.getTopicType());
-    
     //Update which section a topic is associated with
     if(!activeTopic.getSectionId().equals(requestTopic.getSectionId())){
       Section section = sectionService.validateOrgSectionOwnership(requestTopic.getSectionId());
       
-      if(section == null){
+      // Section must belong to the same organization as the topic (or both be personal)
+      if(section == null || !sameOrganization(section.getOrganization(), activeTopic.getOrganization())) {
         System.out.println("Section does not belong to authenticated user");
 
         return ApiResponse.error(HttpStatus.NOT_FOUND, "Topic not found");
@@ -208,6 +213,17 @@ public class TopicServiceImpl implements TopicService {
 
       activeTopic.setSection(section);
     }
+
+    //Topic changed if a the topic type, or section it belongs to changes or if the question pool size changes.
+    boolean topicChange =
+      !requestTopic.getTopicType().equals(activeTopic.getTopicType()) ||
+      !Objects.equals(requestTopic.getSectionId(), activeTopic.getSectionId()) ||
+      (requestTopic.getQuestionPoolSize() != activeTopic.getQuestionPoolSize()
+        && requestTopic.getTopicType() == TopicType.RANDOM_QUESTIONS);
+
+    activeTopic.setName(requestTopic.getName());
+    activeTopic.setDescription(requestTopic.getDescription());
+    activeTopic.setTopicType(requestTopic.getTopicType());
 
     activeTopic.setIsActive(requestTopic.getIsActive());
     activeTopic.setDueDate(requestTopic.getDueDate());
